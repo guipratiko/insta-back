@@ -72,12 +72,12 @@ router.get('/callback', async (req, res) => {
 
     const longLivedToken = longLivedResponse.data.access_token;
 
-    // 3. Obter informações da conta Instagram
+    // 3. Obter informações da conta Instagram (incluindo inbox_id)
     const profileResponse = await axios.get(
       `https://graph.instagram.com/me`,
       {
         params: {
-          fields: 'id,username,account_type',
+          fields: 'id,username,account_type,ig_action_aware_username,name',
           access_token: longLivedToken
         }
       }
@@ -85,11 +85,32 @@ router.get('/callback', async (req, res) => {
 
     const igAccount = profileResponse.data;
 
-    // 4. Verificar se usuário existe, senão criar
+    // 4. Obter inbox_id (ID da conversa para webhooks)
+    let inboxId = igAccount.id;
+    try {
+      const inboxResponse = await axios.get(
+        `https://graph.instagram.com/me/conversations`,
+        {
+          params: {
+            fields: 'id',
+            limit: 1,
+            access_token: longLivedToken
+          }
+        }
+      );
+      if (inboxResponse.data.data?.length > 0) {
+        inboxId = inboxResponse.data.data[0].id;
+        console.log(`📦 Inbox ID encontrado: ${inboxId}`);
+      }
+    } catch (error) {
+      console.log('⚠️ Não foi possível obter inbox_id, usando account_id');
+    }
+
+    // 5. Verificar se usuário existe, senão criar
     const userStmt = db.prepare('INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)');
     userStmt.run(userId, `user_${userId}`);
 
-    // 5. Inserir ou atualizar conta Instagram
+    // 6. Inserir ou atualizar conta Instagram
     const stmt = db.prepare(`
       INSERT INTO instagram_accounts 
       (user_id, instagram_account_id, username, access_token, page_id, page_name, token_expires_at)
@@ -104,14 +125,14 @@ router.get('/callback', async (req, res) => {
 
     stmt.run(
       userId,
-      igAccount.id,
+      inboxId, // Usar inbox_id ao invés de account_id para compatibilidade com webhooks
       igAccount.username,
       longLivedToken,
-      igAccount.id, // page_id = instagram_id para Business Login
-      igAccount.account_type || 'BUSINESS'
+      igAccount.id, // Guardar account_id real em page_id
+      igAccount.username
     );
 
-    console.log(`✅ Conta Instagram conectada: @${igAccount.username} (${igAccount.id})`);
+    console.log(`✅ Conta Instagram conectada: @${igAccount.username} (Account: ${igAccount.id}, Webhook ID: ${inboxId})`);
 
     res.redirect(`${APP_URL}?connected=success`);
   } catch (error) {
