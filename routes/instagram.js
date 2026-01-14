@@ -77,7 +77,7 @@ router.get('/callback', async (req, res) => {
       `https://graph.instagram.com/me`,
       {
         params: {
-          fields: 'id,username,account_type,ig_action_aware_username,name',
+          fields: 'id,username,account_type,name',
           access_token: longLivedToken
         }
       }
