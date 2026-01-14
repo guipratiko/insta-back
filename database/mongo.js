@@ -91,7 +91,13 @@ const dbWrapper = {
   // Buscar conta por instagram_account_id
   async getAccountByInstagramId(instagramAccountId) {
     const collection = db.collection('instagram_accounts');
-    const doc = await collection.findOne({ instagram_account_id: instagramAccountId });
+    // Procurar por ID principal ou pelos webhook_ids alternativos
+    const doc = await collection.findOne({
+      $or: [
+        { instagram_account_id: instagramAccountId },
+        { webhook_ids: instagramAccountId }
+      ]
+    });
     if (!doc) return null;
     return {
       id: doc._id.toString(),
