@@ -10,11 +10,32 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// CORS - Permitir requisições do frontend
+const corsOptions = {
+  origin: function (origin, callback) {
+    console.log(`🔐 CORS request from origin: ${origin}`);
+    
+    const allowedOrigins = [
+      process.env.APP_URL || 'http://localhost:3001',
+      'https://front.clerky.com.br',
+      'http://localhost:3001'
+    ];
+    
+    // Se não houver origin (requisições do mesmo servidor) ou estiver na lista
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`❌ CORS rejected: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
 // Middlewares
-app.use(cors({
-  origin: process.env.APP_URL || 'http://localhost:3001',
-  credentials: true
-}));
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
