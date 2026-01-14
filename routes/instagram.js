@@ -10,19 +10,19 @@ const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI;
 const APP_URL = process.env.APP_URL;
 
-// Gerar URL de login OAuth
+// Gerar URL de login OAuth (Instagram Business Login)
 router.get('/login', (req, res) => {
   const userId = req.query.userId || '1'; // Em produção, pegar do sistema de autenticação
   
   const scopes = [
-    'instagram_basic',
-    'instagram_manage_messages',
-    'instagram_manage_comments',
-    'pages_show_list',
-    'pages_read_engagement'
+    'instagram_business_basic',
+    'instagram_business_manage_messages',
+    'instagram_business_manage_comments',
+    'instagram_business_content_publish',
+    'instagram_business_manage_insights'
   ];
 
-  const authUrl = `https://www.facebook.com/${META_GRAPH_VERSION}/dialog/oauth?` +
+  const authUrl = `https://www.instagram.com/oauth/authorize?` +
     `client_id=${META_APP_ID}` +
     `&redirect_uri=${encodeURIComponent(META_REDIRECT_URI)}` +
     `&scope=${scopes.join(',')}` +
@@ -32,7 +32,7 @@ router.get('/login', (req, res) => {
   res.redirect(authUrl);
 });
 
-// Callback OAuth
+// Callback OAuth (Instagram Business Login)
 router.get('/callback', async (req, res) => {
   const { code, state: userId } = req.query;
 
@@ -41,73 +41,77 @@ router.get('/callback', async (req, res) => {
   }
 
   try {
-    // 1. Trocar code por access_token
-    const tokenResponse = await axios.get(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token`,
+    // 1. Trocar code por access_token (Instagram Business Login)
+    const tokenResponse = await axios.post(
+      'https://api.instagram.com/oauth/access_token',
+      new URLSearchParams({
+        client_id: META_APP_ID,
+        client_secret: META_APP_SECRET,
+        grant_type: 'authorization_code',
+        redirect_uri: META_REDIRECT_URI,
+        code
+      }),
       {
-        params: {
-          client_id: META_APP_ID,
-          client_secret: META_APP_SECRET,
-          redirect_uri: META_REDIRECT_URI,
-          code
-        }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
       }
     );
 
-    const { access_token } = tokenResponse.data;
+    const { access_token, user_id } = tokenResponse.data;
 
-    // 2. Obter informações do usuário e páginas
-    const meResponse = await axios.get(
-      `https://graph.facebook.com/${META_GRAPH_VERSION}/me`,
+    // 2. Obter long-lived token
+    const longLivedResponse = await axios.get(
+      'https://graph.instagram.com/access_token',
       {
         params: {
-          fields: 'id,name,accounts{id,name,instagram_business_account{id,username}}',
+          grant_type: 'ig_exchange_token',
+          client_secret: META_APP_SECRET,
           access_token
         }
       }
     );
 
-    const pages = meResponse.data.accounts?.data || [];
-    
-    // 3. Salvar cada conta Instagram conectada
-    for (const page of pages) {
-      if (page.instagram_business_account) {
-        const igAccount = page.instagram_business_account;
-        
-        // Obter long-lived token para a página
-        const pageLongLivedToken = await getLongLivedToken(page.access_token);
-        
-        // Verificar se usuário existe, senão criar
-        const userStmt = db.prepare('INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)');
-        userStmt.run(userId, meResponse.data.name);
+    const longLivedToken = longLivedResponse.data.access_token;
 
-        // Inserir ou atualizar conta Instagram
-        const stmt = db.prepare(`
-          INSERT INTO instagram_accounts 
-          (user_id, instagram_account_id, username, access_token, page_id, page_name, token_expires_at)
-          VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+60 days'))
-          ON CONFLICT(instagram_account_id) 
-          DO UPDATE SET 
-            access_token = excluded.access_token,
-            username = excluded.username,
-            page_id = excluded.page_id,
-            page_name = excluded.page_name,
-            token_expires_at = excluded.token_expires_at,
-            updated_at = CURRENT_TIMESTAMP
-        `);
-
-        stmt.run(
-          userId,
-          igAccount.id,
-          igAccount.username,
-          pageLongLivedToken,
-          page.id,
-          page.name
-        );
-
-        console.log(`✅ Conta Instagram conectada: @${igAccount.username} (${igAccount.id})`);
+    // 3. Obter informações da conta Instagram
+    const profileResponse = await axios.get(
+      `https://graph.instagram.com/me`,
+      {
+        params: {
+          fields: 'id,username,account_type',
+          access_token: longLivedToken
+        }
       }
-    }
+    );
+
+    const igAccount = profileResponse.data;
+
+    // 4. Verificar se usuário existe, senão criar
+    const userStmt = db.prepare('INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)');
+    userStmt.run(userId, `user_${userId}`);
+
+    // 5. Inserir ou atualizar conta Instagram
+    const stmt = db.prepare(`
+      INSERT INTO instagram_accounts 
+      (user_id, instagram_account_id, username, access_token, page_id, page_name, token_expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+60 days'))
+      ON CONFLICT(instagram_account_id) 
+      DO UPDATE SET 
+        access_token = excluded.access_token,
+        username = excluded.username,
+        token_expires_at = excluded.token_expires_at,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+
+    stmt.run(
+      userId,
+      igAccount.id,
+      igAccount.username,
+      longLivedToken,
+      igAccount.id, // page_id = instagram_id para Business Login
+      igAccount.account_type || 'BUSINESS'
+    );
+
+    console.log(`✅ Conta Instagram conectada: @${igAccount.username} (${igAccount.id})`);
 
     res.redirect(`${APP_URL}?connected=success`);
   } catch (error) {
