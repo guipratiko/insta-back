@@ -167,7 +167,17 @@ async function executeSql(sql, params, mode) {
     // Converter userId para número
     const userId = parseInt(params[0]) || params[0];
     console.log(`🔍 MongoDB query - finding accounts with user_id:`, userId, `(type: ${typeof userId})`);
+    
+    // Query no MongoDB
     let docs = await collection.find({ user_id: userId }).toArray();
+    console.log(`🔍 MongoDB raw result:`, JSON.stringify(docs, null, 2));
+    
+    // Se não encontrou com número, tenta com string
+    if (docs.length === 0 && typeof userId === 'number') {
+      console.log(`⚠️ Tentando com string...`);
+      docs = await collection.find({ user_id: String(userId) }).toArray();
+      console.log(`🔍 MongoDB result with string:`, JSON.stringify(docs, null, 2));
+    }
     
     // Map MongoDB _id to id field
     docs = docs.map(doc => ({
@@ -175,7 +185,7 @@ async function executeSql(sql, params, mode) {
       id: doc._id.toString()
     }));
     
-    console.log(`🔍 MongoDB result (${docs.length} accounts):`, docs);
+    console.log(`✅ Final result after mapping (${docs.length} accounts):`, JSON.stringify(docs, null, 2));
     if (mode === 'all') return docs || [];
     return docs[0] || null;
   }
