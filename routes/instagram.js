@@ -166,9 +166,9 @@ async function getLongLivedToken(shortToken) {
 router.get('/accounts', async (req, res) => {
   const userId = req.query.userId || '1';
   
+  console.log(`\n📋 GET /accounts - userId: ${userId}`);
+  
   try {
-    console.log(`📋 Buscando contas para userId: ${userId}`);
-    
     const stmt = db.prepare(`
       SELECT 
         id,
@@ -185,9 +185,15 @@ router.get('/accounts', async (req, res) => {
 
     const accounts = await stmt.all(userId);
     
-    console.log(`✅ Contas encontradas:`, accounts);
+    console.log(`✅ stmt.all() returned:`, accounts);
+    console.log(`✅ Type of accounts:`, typeof accounts);
+    console.log(`✅ Is Array:`, Array.isArray(accounts));
+    console.log(`✅ Length:`, accounts?.length);
     
-    res.json({ accounts: accounts || [] });
+    const response = { accounts: accounts || [] };
+    console.log(`✅ Final response:`, response);
+    
+    res.json(response);
   } catch (error) {
     console.error('❌ Erro ao listar contas:', error);
     res.json({ accounts: [] });
