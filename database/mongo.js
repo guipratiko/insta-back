@@ -144,13 +144,19 @@ async function executeSql(sql, params, mode) {
   if (sql.includes('SELECT id FROM instagram_accounts WHERE instagram_account_id')) {
     const collection = db.collection('instagram_accounts');
     const doc = await collection.findOne({ instagram_account_id: params[0] });
-    return doc;
+    if (doc) {
+      return { id: doc._id.toString() };
+    }
+    return null;
   }
 
   // SELECT FROM instagram_accounts WHERE instagram_account_id (for webhook)
   if (sql.includes('SELECT') && sql.includes('instagram_accounts') && sql.includes('instagram_account_id')) {
     const collection = db.collection('instagram_accounts');
-    const doc = await collection.findOne({ instagram_account_id: params[0] });
+    let doc = await collection.findOne({ instagram_account_id: params[0] });
+    if (doc) {
+      doc = { ...doc, id: doc._id.toString() };
+    }
     if (mode === 'get') return doc;
     if (mode === 'all') return doc ? [doc] : [];
   }
@@ -161,8 +167,15 @@ async function executeSql(sql, params, mode) {
     // Converter userId para número
     const userId = parseInt(params[0]) || params[0];
     console.log(`🔍 MongoDB query - finding accounts with user_id:`, userId, `(type: ${typeof userId})`);
-    const docs = await collection.find({ user_id: userId }).toArray();
-    console.log(`🔍 MongoDB result:`, docs);
+    let docs = await collection.find({ user_id: userId }).toArray();
+    
+    // Map MongoDB _id to id field
+    docs = docs.map(doc => ({
+      ...doc,
+      id: doc._id.toString()
+    }));
+    
+    console.log(`🔍 MongoDB result (${docs.length} accounts):`, docs);
     if (mode === 'all') return docs || [];
     return docs[0] || null;
   }
