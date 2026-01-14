@@ -167,6 +167,8 @@ router.get('/accounts', async (req, res) => {
   const userId = req.query.userId || '1';
   
   try {
+    console.log(`📋 Buscando contas para userId: ${userId}`);
+    
     const stmt = db.prepare(`
       SELECT 
         id,
@@ -182,9 +184,12 @@ router.get('/accounts', async (req, res) => {
     `);
 
     const accounts = await stmt.all(userId);
+    
+    console.log(`✅ Contas encontradas:`, accounts);
+    
     res.json({ accounts: accounts || [] });
   } catch (error) {
-    console.error('Erro ao listar contas:', error);
+    console.error('❌ Erro ao listar contas:', error);
     res.json({ accounts: [] });
   }
 });

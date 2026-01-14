@@ -160,7 +160,9 @@ async function executeSql(sql, params, mode) {
     const collection = db.collection('instagram_accounts');
     // Converter userId para número
     const userId = parseInt(params[0]) || params[0];
+    console.log(`🔍 MongoDB query - finding accounts with user_id:`, userId, `(type: ${typeof userId})`);
     const docs = await collection.find({ user_id: userId }).toArray();
+    console.log(`🔍 MongoDB result:`, docs);
     if (mode === 'all') return docs || [];
     return docs[0] || null;
   }
