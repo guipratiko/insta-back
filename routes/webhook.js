@@ -19,7 +19,8 @@ router.get('/instagram', (req, res) => {
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
     console.log('✅ Webhook verificado com sucesso!');
-    res.status(200).send(challenge);
+    console.log('   Devolvendo challenge:', challenge);
+    res.status(200).type('text/plain').send(challenge);
   } else {
     console.error('❌ Falha na verificação do webhook - token não corresponde');
     res.sendStatus(403);
