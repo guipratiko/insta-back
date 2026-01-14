@@ -68,6 +68,13 @@ async function handleMessage(recipientId, event) {
 
   if (!account) {
     console.error(`❌ Conta ${recipientId} não encontrada no banco`);
+    
+    // Debug: listar todas as contas no banco
+    const allAccounts = await db.getAccountsByUserId(1);
+    console.log(`📊 Contas no banco:`, allAccounts.map(a => ({ 
+      id: a.instagram_account_id, 
+      username: a.username 
+    })));
     return;
   }
 
