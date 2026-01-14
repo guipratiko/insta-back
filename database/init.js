@@ -1,7 +1,7 @@
-import Database from 'better-sqlite3';
+import initSqlJs from 'sql.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
-import { mkdirSync, existsSync } from 'fs';
+import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -14,14 +14,80 @@ if (!existsSync(DB_DIR)) {
   mkdirSync(DB_DIR, { recursive: true });
 }
 
-export const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+let SQL;
+let db;
 
-export function initDatabase() {
+// Inicializar SQL.js
+async function initSQL() {
+  SQL = await initSqlJs();
+  
+  // Carregar banco existente ou criar novo
+  if (existsSync(DB_PATH)) {
+    const buffer = readFileSync(DB_PATH);
+    db = new SQL.Database(buffer);
+  } else {
+    db = new SQL.Database();
+  }
+}
+
+// Salvar banco de dados
+function saveDatabase() {
+  if (db) {
+    const data = db.export();
+    writeFileSync(DB_PATH, data);
+  }
+}
+
+// Wrapper para executar queries com auto-save
+const dbWrapper = {
+  prepare: (sql) => {
+    return {
+      run: (...params) => {
+        try {
+          db.run(sql, params);
+          saveDatabase();
+          return { changes: db.getRowsModified() };
+        } catch (error) {
+          console.error('Error executing query:', error);
+          throw error;
+        }
+      },
+      get: (...params) => {
+        const stmt = db.prepare(sql);
+        stmt.bind(params);
+        if (stmt.step()) {
+          const row = stmt.getAsObject();
+          stmt.free();
+          return row;
+        }
+        stmt.free();
+        return null;
+      },
+      all: (...params) => {
+        const stmt = db.prepare(sql);
+        stmt.bind(params);
+        const rows = [];
+        while (stmt.step()) {
+          rows.push(stmt.getAsObject());
+        }
+        stmt.free();
+        return rows;
+      }
+    };
+  },
+  exec: (sql) => {
+    db.run(sql);
+    saveDatabase();
+  }
+};
+
+export async function initDatabase() {
   console.log('🗄️  Inicializando banco de dados...');
 
+  await initSQL();
+
   // Tabela de usuários (seus clientes)
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       email TEXT UNIQUE,
@@ -31,7 +97,7 @@ export function initDatabase() {
   `);
 
   // Tabela de contas Instagram conectadas
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS instagram_accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
@@ -49,13 +115,13 @@ export function initDatabase() {
   `);
 
   // Índice para buscar contas por instagram_account_id (usado nos webhooks)
-  db.exec(`
+  db.run(`
     CREATE INDEX IF NOT EXISTS idx_instagram_account_id 
     ON instagram_accounts(instagram_account_id)
   `);
 
   // Tabela de mensagens recebidas
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id INTEGER NOT NULL,
@@ -74,7 +140,7 @@ export function initDatabase() {
   `);
 
   // Tabela de comentários recebidos
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS comments (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       account_id INTEGER NOT NULL,
@@ -93,7 +159,9 @@ export function initDatabase() {
     )
   `);
 
+  saveDatabase();
   console.log('✅ Banco de dados inicializado');
 }
 
-export default db;
+export { dbWrapper as db };
+export default dbWrapper;

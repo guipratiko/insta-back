@@ -25,7 +25,7 @@ app.use((req, res, next) => {
 });
 
 // Inicializar banco de dados
-initDatabase();
+await initDatabase();
 
 // Rotas
 app.get('/health', (req, res) => {
