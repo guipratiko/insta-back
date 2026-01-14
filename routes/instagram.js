@@ -85,41 +85,21 @@ router.get('/callback', async (req, res) => {
 
     const igAccount = profileResponse.data;
 
-    // 4. Obter inbox_id (ID da conversa para webhooks)
-    let inboxId = igAccount.id;
-    try {
-      const inboxResponse = await axios.get(
-        `https://graph.instagram.com/me/conversations`,
-        {
-          params: {
-            fields: 'id',
-            limit: 1,
-            access_token: longLivedToken
-          }
-        }
-      );
-      if (inboxResponse.data.data?.length > 0) {
-        inboxId = inboxResponse.data.data[0].id;
-        console.log(`📦 Inbox ID encontrado: ${inboxId}`);
-      }
-    } catch (error) {
-      console.log('⚠️ Não foi possível obter inbox_id, usando account_id');
-    }
-
-    // 5. Verificar se usuário existe, senão criar
+    // 4. Verificar se usuário existe, senão criar
     await db.createUser(userId, `user_${userId}`);
 
-    // 6. Inserir ou atualizar conta Instagram
+    // 5. Inserir ou atualizar conta Instagram
+    // IMPORTANTE: usar igAccount.id pois é o ID que vem nos webhooks (entry.id)
     await db.upsertInstagramAccount({
       user_id: parseInt(userId),
-      instagram_account_id: inboxId, // Usar inbox_id para webhooks
+      instagram_account_id: igAccount.id, // ID da conta Instagram Business (usado nos webhooks)
       username: igAccount.username,
       access_token: longLivedToken,
-      page_id: igAccount.id, // Guardar account_id real em page_id
+      page_id: igAccount.id,
       page_name: igAccount.username
     });
 
-    console.log(`✅ Conta Instagram conectada: @${igAccount.username} (Account: ${igAccount.id}, Webhook ID: ${inboxId})`);
+    console.log(`✅ Conta Instagram conectada: @${igAccount.username} (ID: ${igAccount.id})`);
 
     res.redirect(`${APP_URL}?connected=success`);
   } catch (error) {
