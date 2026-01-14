@@ -33,7 +33,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/instagram', instagramRoutes);
-app.use('/api/webhook', webhookRoutes);
+app.use('/webhook', webhookRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {
