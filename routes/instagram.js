@@ -261,4 +261,43 @@ router.post('/refresh-token', async (req, res) => {
   }
 });
 
+// Webhook de desautorização (obrigatório pelo Meta)
+router.post('/deauthorize', async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    
+    console.log('📤 Deauthorize callback received:', { user_id, body: req.body });
+    
+    // Aqui você pode remover os tokens do usuário do banco de dados
+    // Por segurança, apenas logar por enquanto
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Erro no deauthorize:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Webhook de solicitação de exclusão de dados (obrigatório pelo Meta)
+router.post('/data-deletion', async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    
+    console.log('🗑️  Data deletion request received:', { user_id, body: req.body });
+    
+    // Implementar lógica para deletar dados do usuário
+    // Retornar uma URL de confirmação
+    const confirmationCode = `deletion_${user_id}_${Date.now()}`;
+    const statusUrl = `${APP_URL}/deletion-status/${confirmationCode}`;
+    
+    res.json({
+      url: statusUrl,
+      confirmation_code: confirmationCode
+    });
+  } catch (error) {
+    console.error('Erro no data-deletion:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 export default router;
