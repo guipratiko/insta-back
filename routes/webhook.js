@@ -25,29 +25,29 @@ router.get('/instagram', (req, res) => {
 });
 
 // Receber eventos do webhook (POST)
-router.post('/instagram', (req, res) => {
+router.post('/instagram', async (req, res) => {
   const body = req.body;
 
   console.log('📨 Webhook recebido:', JSON.stringify(body, null, 2));
 
   if (body.object === 'instagram') {
-    body.entry?.forEach(entry => {
+    for (const entry of body.entry || []) {
       const recipientId = entry.id; // ID da conta Instagram que recebeu a mensagem
 
       // Processar mensagens
       if (entry.messaging) {
-        entry.messaging.forEach(event => {
-          handleMessage(recipientId, event);
-        });
+        for (const event of entry.messaging) {
+          await handleMessage(recipientId, event);
+        }
       }
 
       // Processar mudanças (comentários, etc)
       if (entry.changes) {
-        entry.changes.forEach(change => {
-          handleChange(recipientId, change);
-        });
+        for (const change of entry.changes) {
+          await handleChange(recipientId, change);
+        }
       }
-    });
+    }
 
     res.status(200).send('EVENT_RECEIVED');
   } else {
@@ -56,7 +56,7 @@ router.post('/instagram', (req, res) => {
 });
 
 // Processar mensagem recebida
-function handleMessage(recipientId, event) {
+async function handleMessage(recipientId, event) {
   const senderId = event.sender?.id;
   const message = event.message;
   const timestamp = event.timestamp;
@@ -65,7 +65,7 @@ function handleMessage(recipientId, event) {
 
   // Buscar conta no banco pelo instagram_account_id
   const accountStmt = db.prepare('SELECT id FROM instagram_accounts WHERE instagram_account_id = ?');
-  const account = accountStmt.get(recipientId);
+  const account = await accountStmt.get(recipientId);
 
   if (!account) {
     console.error(`❌ Conta ${recipientId} não encontrada no banco`);
@@ -79,7 +79,7 @@ function handleMessage(recipientId, event) {
     ON CONFLICT(message_id) DO NOTHING
   `);
 
-  stmt.run(
+  await stmt.run(
     account.id,
     senderId,
     recipientId,
@@ -96,14 +96,14 @@ function handleMessage(recipientId, event) {
 }
 
 // Processar mudanças (comentários, menções, etc)
-function handleChange(recipientId, change) {
+async function handleChange(recipientId, change) {
   const value = change.value;
 
   console.log(`🔔 Mudança recebida na conta ${recipientId}:`, change.field);
 
   // Buscar conta no banco
   const accountStmt = db.prepare('SELECT id FROM instagram_accounts WHERE instagram_account_id = ?');
-  const account = accountStmt.get(recipientId);
+  const account = await accountStmt.get(recipientId);
 
   if (!account) {
     console.error(`❌ Conta ${recipientId} não encontrada no banco`);
@@ -118,7 +118,7 @@ function handleChange(recipientId, change) {
       ON CONFLICT(comment_id) DO NOTHING
     `);
 
-    stmt.run(
+    await stmt.run(
       account.id,
       value.id || `comment_${Date.now()}`,
       value.media?.id || '',

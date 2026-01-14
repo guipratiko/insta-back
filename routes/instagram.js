@@ -108,7 +108,7 @@ router.get('/callback', async (req, res) => {
 
     // 5. Verificar se usuário existe, senão criar
     const userStmt = db.prepare('INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)');
-    userStmt.run(userId, `user_${userId}`);
+    await userStmt.run(userId, `user_${userId}`);
 
     // 6. Inserir ou atualizar conta Instagram
     const stmt = db.prepare(`
@@ -123,7 +123,7 @@ router.get('/callback', async (req, res) => {
         updated_at = CURRENT_TIMESTAMP
     `);
 
-    stmt.run(
+    await stmt.run(
       userId,
       inboxId, // Usar inbox_id ao invés de account_id para compatibilidade com webhooks
       igAccount.username,
@@ -163,25 +163,30 @@ async function getLongLivedToken(shortToken) {
 }
 
 // Listar contas conectadas
-router.get('/accounts', (req, res) => {
+router.get('/accounts', async (req, res) => {
   const userId = req.query.userId || '1';
   
-  const stmt = db.prepare(`
-    SELECT 
-      id,
-      instagram_account_id,
-      username,
-      page_name,
-      token_expires_at,
-      created_at,
-      updated_at
-    FROM instagram_accounts 
-    WHERE user_id = ?
-    ORDER BY created_at DESC
-  `);
+  try {
+    const stmt = db.prepare(`
+      SELECT 
+        id,
+        instagram_account_id,
+        username,
+        page_name,
+        token_expires_at,
+        created_at,
+        updated_at
+      FROM instagram_accounts 
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+    `);
 
-  const accounts = stmt.all(userId);
-  res.json({ accounts });
+    const accounts = await stmt.all(userId);
+    res.json({ accounts: accounts || [] });
+  } catch (error) {
+    console.error('Erro ao listar contas:', error);
+    res.json({ accounts: [] });
+  }
 });
 
 // Enviar mensagem para um usuário
@@ -195,7 +200,7 @@ router.post('/send-message', async (req, res) => {
   try {
     // Buscar access token da conta
     const stmt = db.prepare('SELECT access_token, instagram_account_id FROM instagram_accounts WHERE id = ?');
-    const account = stmt.get(accountId);
+    const account = await stmt.get(accountId);
 
     if (!account) {
       return res.status(404).json({ error: 'Account not found' });
@@ -227,22 +232,27 @@ router.post('/send-message', async (req, res) => {
 });
 
 // Listar mensagens recebidas
-router.get('/messages', (req, res) => {
+router.get('/messages', async (req, res) => {
   const accountId = req.query.accountId;
   
   if (!accountId) {
     return res.status(400).json({ error: 'accountId is required' });
   }
 
-  const stmt = db.prepare(`
-    SELECT * FROM messages 
-    WHERE account_id = ?
-    ORDER BY timestamp DESC
-    LIMIT 100
-  `);
+  try {
+    const stmt = db.prepare(`
+      SELECT * FROM messages 
+      WHERE account_id = ?
+      ORDER BY timestamp DESC
+      LIMIT 100
+    `);
 
-  const messages = stmt.all(accountId);
-  res.json({ messages });
+    const messages = await stmt.all(accountId);
+    res.json({ messages: messages || [] });
+  } catch (error) {
+    console.error('Erro ao listar mensagens:', error);
+    res.json({ messages: [] });
+  }
 });
 
 // Refresh token
@@ -251,7 +261,7 @@ router.post('/refresh-token', async (req, res) => {
 
   try {
     const stmt = db.prepare('SELECT access_token FROM instagram_accounts WHERE id = ?');
-    const account = stmt.get(accountId);
+    const account = await stmt.get(accountId);
 
     if (!account) {
       return res.status(404).json({ error: 'Account not found' });
@@ -277,7 +287,7 @@ router.post('/refresh-token', async (req, res) => {
       SET access_token = ?, token_expires_at = datetime('now', '+60 days'), updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `);
-    updateStmt.run(newToken, accountId);
+    await updateStmt.run(newToken, accountId);
 
     res.json({ success: true, message: 'Token refreshed' });
   } catch (error) {

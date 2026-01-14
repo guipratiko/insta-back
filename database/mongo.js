@@ -23,22 +23,16 @@ async function connectMongo() {
 const dbWrapper = {
   prepare: (sql) => {
     return {
-      run: async (...params) => {
-        try {
-          const result = await executeSql(sql, params, 'run');
-          return result;
-        } catch (error) {
-          console.error('Error executing query:', error);
-          throw error;
-        }
+      run: (...params) => {
+        // Executar de forma síncrona retornando uma promise
+        const promise = executeSql(sql, params, 'run');
+        return promise; // Retorna Promise
       },
-      get: async (...params) => {
-        const result = await executeSql(sql, params, 'get');
-        return result;
+      get: (...params) => {
+        return executeSql(sql, params, 'get');
       },
-      all: async (...params) => {
-        const result = await executeSql(sql, params, 'all');
-        return result;
+      all: (...params) => {
+        return executeSql(sql, params, 'all');
       }
     };
   }
