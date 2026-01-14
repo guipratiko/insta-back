@@ -64,8 +64,7 @@ async function handleMessage(recipientId, event) {
   console.log(`💬 Mensagem recebida na conta ${recipientId} de ${senderId}:`, message?.text);
 
   // Buscar conta no banco pelo instagram_account_id
-  const accountStmt = db.prepare('SELECT id FROM instagram_accounts WHERE instagram_account_id = ?');
-  const account = await accountStmt.get(recipientId);
+  const account = await db.getAccountByInstagramId(recipientId);
 
   if (!account) {
     console.error(`❌ Conta ${recipientId} não encontrada no banco`);
@@ -73,21 +72,15 @@ async function handleMessage(recipientId, event) {
   }
 
   // Salvar mensagem no banco
-  const stmt = db.prepare(`
-    INSERT INTO messages (account_id, sender_id, recipient_id, message_id, text, timestamp, raw_data)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(message_id) DO NOTHING
-  `);
-
-  await stmt.run(
-    account.id,
-    senderId,
-    recipientId,
-    message?.mid || `msg_${Date.now()}`,
-    message?.text || '',
-    timestamp,
-    JSON.stringify(event)
-  );
+  await db.saveMessage({
+    account_id: account.id,
+    sender_id: senderId,
+    recipient_id: recipientId,
+    message_id: message?.mid || `msg_${Date.now()}`,
+    text: message?.text || '',
+    timestamp: timestamp,
+    raw_data: JSON.stringify(event)
+  });
 
   console.log(`✅ Mensagem salva no banco (account_id: ${account.id})`);
 
@@ -102,8 +95,7 @@ async function handleChange(recipientId, change) {
   console.log(`🔔 Mudança recebida na conta ${recipientId}:`, change.field);
 
   // Buscar conta no banco
-  const accountStmt = db.prepare('SELECT id FROM instagram_accounts WHERE instagram_account_id = ?');
-  const account = await accountStmt.get(recipientId);
+  const account = await db.getAccountByInstagramId(recipientId);
 
   if (!account) {
     console.error(`❌ Conta ${recipientId} não encontrada no banco`);
@@ -112,22 +104,16 @@ async function handleChange(recipientId, change) {
 
   // Processar comentários
   if (change.field === 'comments' && value.text) {
-    const stmt = db.prepare(`
-      INSERT INTO comments (account_id, comment_id, post_id, from_user_id, from_username, text, timestamp, raw_data)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(comment_id) DO NOTHING
-    `);
-
-    await stmt.run(
-      account.id,
-      value.id || `comment_${Date.now()}`,
-      value.media?.id || '',
-      value.from?.id || '',
-      value.from?.username || '',
-      value.text,
-      Date.now(),
-      JSON.stringify(change)
-    );
+    await db.saveComment({
+      account_id: account.id,
+      comment_id: value.id || `comment_${Date.now()}`,
+      post_id: value.media?.id || '',
+      from_user_id: value.from?.id || '',
+      from_username: value.from?.username || '',
+      text: value.text,
+      timestamp: Date.now(),
+      raw_data: JSON.stringify(change)
+    });
 
     console.log(`✅ Comentário salvo no banco (account_id: ${account.id})`);
   }

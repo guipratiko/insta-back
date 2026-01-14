@@ -107,30 +107,17 @@ router.get('/callback', async (req, res) => {
     }
 
     // 5. Verificar se usuário existe, senão criar
-    const userStmt = db.prepare('INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)');
-    await userStmt.run(userId, `user_${userId}`);
+    await db.createUser(userId, `user_${userId}`);
 
     // 6. Inserir ou atualizar conta Instagram
-    const stmt = db.prepare(`
-      INSERT INTO instagram_accounts 
-      (user_id, instagram_account_id, username, access_token, page_id, page_name, token_expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+60 days'))
-      ON CONFLICT(instagram_account_id) 
-      DO UPDATE SET 
-        access_token = excluded.access_token,
-        username = excluded.username,
-        token_expires_at = excluded.token_expires_at,
-        updated_at = CURRENT_TIMESTAMP
-    `);
-
-    await stmt.run(
-      userId,
-      inboxId, // Usar inbox_id ao invés de account_id para compatibilidade com webhooks
-      igAccount.username,
-      longLivedToken,
-      igAccount.id, // Guardar account_id real em page_id
-      igAccount.username
-    );
+    await db.upsertInstagramAccount({
+      user_id: parseInt(userId),
+      instagram_account_id: inboxId, // Usar inbox_id para webhooks
+      username: igAccount.username,
+      access_token: longLivedToken,
+      page_id: igAccount.id, // Guardar account_id real em page_id
+      page_name: igAccount.username
+    });
 
     console.log(`✅ Conta Instagram conectada: @${igAccount.username} (Account: ${igAccount.id}, Webhook ID: ${inboxId})`);
 
@@ -169,23 +156,9 @@ router.get('/accounts', async (req, res) => {
   console.log(`\n📋 GET /accounts - userId: ${userId}`);
   
   try {
-    const stmt = db.prepare(`
-      SELECT 
-        id,
-        instagram_account_id,
-        username,
-        page_name,
-        token_expires_at,
-        created_at,
-        updated_at
-      FROM instagram_accounts 
-      WHERE user_id = ?
-      ORDER BY created_at DESC
-    `);
-
-    const accounts = await stmt.all(userId);
+    const accounts = await db.getAccountsByUserId(userId);
     
-    console.log(`✅ stmt.all() returned:`, accounts);
+    console.log(`✅ db.getAccountsByUserId() returned:`, accounts);
     console.log(`✅ Type of accounts:`, typeof accounts);
     console.log(`✅ Is Array:`, Array.isArray(accounts));
     console.log(`✅ Length:`, accounts?.length);
@@ -210,8 +183,7 @@ router.post('/send-message', async (req, res) => {
 
   try {
     // Buscar access token da conta
-    const stmt = db.prepare('SELECT access_token, instagram_account_id FROM instagram_accounts WHERE id = ?');
-    const account = await stmt.get(accountId);
+    const account = await db.getAccountById(accountId);
 
     if (!account) {
       return res.status(404).json({ error: 'Account not found' });
@@ -251,14 +223,7 @@ router.get('/messages', async (req, res) => {
   }
 
   try {
-    const stmt = db.prepare(`
-      SELECT * FROM messages 
-      WHERE account_id = ?
-      ORDER BY timestamp DESC
-      LIMIT 100
-    `);
-
-    const messages = await stmt.all(accountId);
+    const messages = await db.getMessagesByAccountId(accountId);
     res.json({ messages: messages || [] });
   } catch (error) {
     console.error('Erro ao listar mensagens:', error);
@@ -271,8 +236,7 @@ router.post('/refresh-token', async (req, res) => {
   const { accountId } = req.body;
 
   try {
-    const stmt = db.prepare('SELECT access_token FROM instagram_accounts WHERE id = ?');
-    const account = await stmt.get(accountId);
+    const account = await db.getAccountById(accountId);
 
     if (!account) {
       return res.status(404).json({ error: 'Account not found' });
@@ -293,12 +257,7 @@ router.post('/refresh-token', async (req, res) => {
     const newToken = response.data.access_token;
 
     // Atualizar token no banco
-    const updateStmt = db.prepare(`
-      UPDATE instagram_accounts 
-      SET access_token = ?, token_expires_at = datetime('now', '+60 days'), updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `);
-    await updateStmt.run(newToken, accountId);
+    await db.updateToken(accountId, newToken);
 
     res.json({ success: true, message: 'Token refreshed' });
   } catch (error) {

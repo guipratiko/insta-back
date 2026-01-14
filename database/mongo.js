@@ -1,4 +1,4 @@
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://clerky:qGfdSCz1bDTuHD5o@cluster0.6mgam.mongodb.net/sis-clerky?retryWrites=true&w=majority&appName=Cluster0';
 const DB_NAME = 'sis-clerky';
@@ -19,214 +19,169 @@ async function connectMongo() {
   }
 }
 
-// Wrapper para compatibilidade com código anterior (sql.js)
+// API MongoDB Nativa
 const dbWrapper = {
-  prepare: (sql) => {
-    return {
-      run: (...params) => {
-        // Executar de forma síncrona retornando uma promise
-        const promise = executeSql(sql, params, 'run');
-        return promise; // Retorna Promise
-      },
-      get: (...params) => {
-        return executeSql(sql, params, 'get');
-      },
-      all: (...params) => {
-        return executeSql(sql, params, 'all');
-      }
-    };
-  }
-};
-
-// Executor SQL -> MongoDB
-async function executeSql(sql, params, mode) {
-  // INSERT INTO instagram_accounts
-  if (sql.includes('INSERT INTO instagram_accounts')) {
-    const collection = db.collection('instagram_accounts');
-    const doc = {
-      user_id: parseInt(params[0]) || params[0],
-      instagram_account_id: params[1],
-      username: params[2],
-      access_token: params[3],
-      page_id: params[4],
-      page_name: params[5],
-      token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
-      created_at: new Date(),
-      updated_at: new Date()
-    };
-    
-    try {
-      const result = await collection.updateOne(
-        { instagram_account_id: params[1] },
-        { $set: doc },
-        { upsert: true }
-      );
-      return { changes: result.modifiedCount + result.upsertedCount };
-    } catch (error) {
-      if (error.code === 11000) return { changes: 0 }; // Duplicate key
-      throw error;
-    }
-  }
-
-  // INSERT OR IGNORE INTO users
-  if (sql.includes('INSERT OR IGNORE INTO users')) {
+  // Criar/atualizar usuário
+  async createUser(userId, name) {
     const collection = db.collection('users');
-    try {
-      await collection.updateOne(
-        { _id: params[0] },
-        { $set: { _id: params[0], name: params[1], created_at: new Date() } },
-        { upsert: true }
-      );
-      return { changes: 1 };
-    } catch (error) {
-      return { changes: 0 };
-    }
-  }
+    await collection.updateOne(
+      { _id: parseInt(userId) },
+      { $set: { _id: parseInt(userId), name, created_at: new Date() } },
+      { upsert: true }
+    );
+  },
 
-  // INSERT INTO messages
-  if (sql.includes('INSERT INTO messages')) {
-    const collection = db.collection('messages');
-    const doc = {
-      account_id: params[0],
-      sender_id: params[1],
-      recipient_id: params[2],
-      message_id: params[3],
-      text: params[4],
-      timestamp: params[5],
-      raw_data: params[6],
-      replied: false,
-      created_at: new Date()
-    };
-    
-    try {
-      const result = await collection.updateOne(
-        { message_id: params[3] },
-        { $set: doc },
-        { upsert: true }
-      );
-      return { changes: result.modifiedCount + result.upsertedCount };
-    } catch (error) {
-      if (error.code === 11000) return { changes: 0 };
-      throw error;
-    }
-  }
-
-  // INSERT INTO comments
-  if (sql.includes('INSERT INTO comments')) {
-    const collection = db.collection('comments');
-    const doc = {
-      account_id: params[0],
-      comment_id: params[1],
-      post_id: params[2],
-      from_user_id: params[3],
-      from_username: params[4],
-      text: params[5],
-      timestamp: params[6],
-      raw_data: params[7],
-      replied: false,
-      created_at: new Date()
-    };
-    
-    try {
-      const result = await collection.updateOne(
-        { comment_id: params[1] },
-        { $set: doc },
-        { upsert: true }
-      );
-      return { changes: result.modifiedCount + result.upsertedCount };
-    } catch (error) {
-      if (error.code === 11000) return { changes: 0 };
-      throw error;
-    }
-  }
-
-  // SELECT FROM instagram_accounts (by id)
-  if (sql.includes('SELECT id FROM instagram_accounts WHERE instagram_account_id')) {
-    const collection = db.collection('instagram_accounts');
-    const doc = await collection.findOne({ instagram_account_id: params[0] });
-    if (doc) {
-      return { id: doc._id.toString() };
-    }
-    return null;
-  }
-
-  // SELECT FROM instagram_accounts WHERE instagram_account_id (for webhook)
-  if (sql.includes('SELECT') && sql.includes('instagram_accounts') && sql.includes('instagram_account_id')) {
-    const collection = db.collection('instagram_accounts');
-    let doc = await collection.findOne({ instagram_account_id: params[0] });
-    if (doc) {
-      doc = { ...doc, id: doc._id.toString() };
-    }
-    if (mode === 'get') return doc;
-    if (mode === 'all') return doc ? [doc] : [];
-  }
-
-  // SELECT * FROM instagram_accounts WHERE user_id (list accounts)
-  if (sql.includes('SELECT') && sql.includes('FROM instagram_accounts') && sql.includes('user_id')) {
-    const collection = db.collection('instagram_accounts');
-    // Converter userId para número
-    const userId = parseInt(params[0]) || params[0];
-    console.log(`🔍 MongoDB query - finding accounts with user_id:`, userId, `(type: ${typeof userId})`);
-    
-    // Query no MongoDB
-    let docs = await collection.find({ user_id: userId }).toArray();
-    console.log(`🔍 MongoDB raw result:`, JSON.stringify(docs, null, 2));
-    
-    // Se não encontrou com número, tenta com string
-    if (docs.length === 0 && typeof userId === 'number') {
-      console.log(`⚠️ Tentando com string...`);
-      docs = await collection.find({ user_id: String(userId) }).toArray();
-      console.log(`🔍 MongoDB result with string:`, JSON.stringify(docs, null, 2));
-    }
-    
-    // Map MongoDB _id to id field
-    docs = docs.map(doc => ({
-      ...doc,
-      id: doc._id.toString()
-    }));
-    
-    console.log(`✅ Final result after mapping (${docs.length} accounts):`, JSON.stringify(docs, null, 2));
-    if (mode === 'all') return docs || [];
-    return docs[0] || null;
-  }
-
-  // SELECT * FROM messages WHERE account_id
-  if (sql.includes('SELECT') && sql.includes('FROM messages') && sql.includes('account_id')) {
-    const collection = db.collection('messages');
-    const accountId = parseInt(params[0]) || params[0];
-    const docs = await collection.find({ account_id: accountId }).sort({ timestamp: -1 }).toArray();
-    return mode === 'all' ? (docs || []) : docs[0] || null;
-  }
-
-  // SELECT COUNT(*) FROM instagram_accounts
-  if (sql.includes('SELECT COUNT')) {
-    const match = sql.match(/FROM (\w+)/);
-    if (match) {
-      const collection = db.collection(match[1]);
-      const count = await collection.countDocuments();
-      return { count };
-    }
-  }
-
-  // UPDATE access_token
-  if (sql.includes('UPDATE instagram_accounts SET access_token')) {
+  // Criar/atualizar conta Instagram
+  async upsertInstagramAccount(data) {
     const collection = db.collection('instagram_accounts');
     const result = await collection.updateOne(
-      { _id: params[1] },
+      { instagram_account_id: data.instagram_account_id },
       {
         $set: {
-          access_token: params[0],
+          user_id: parseInt(data.user_id),
+          instagram_account_id: data.instagram_account_id,
+          username: data.username,
+          access_token: data.access_token,
+          page_id: data.page_id,
+          page_name: data.page_name,
+          token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
+          updated_at: new Date()
+        },
+        $setOnInsert: {
+          created_at: new Date()
+        }
+      },
+      { upsert: true }
+    );
+    return result;
+  },
+
+  // Buscar contas por user_id
+  async getAccountsByUserId(userId) {
+    const collection = db.collection('instagram_accounts');
+    const docs = await collection.find({ user_id: parseInt(userId) }).toArray();
+    return docs.map(doc => ({
+      id: doc._id.toString(),
+      user_id: doc.user_id,
+      instagram_account_id: doc.instagram_account_id,
+      username: doc.username,
+      page_name: doc.page_name,
+      page_id: doc.page_id,
+      token_expires_at: doc.token_expires_at,
+      created_at: doc.created_at,
+      updated_at: doc.updated_at
+    }));
+  },
+
+  // Buscar conta por ID
+  async getAccountById(accountId) {
+    const collection = db.collection('instagram_accounts');
+    const doc = await collection.findOne({ _id: new ObjectId(accountId) });
+    if (!doc) return null;
+    return {
+      id: doc._id.toString(),
+      instagram_account_id: doc.instagram_account_id,
+      username: doc.username,
+      access_token: doc.access_token,
+      page_id: doc.page_id,
+      page_name: doc.page_name
+    };
+  },
+
+  // Buscar conta por instagram_account_id
+  async getAccountByInstagramId(instagramAccountId) {
+    const collection = db.collection('instagram_accounts');
+    const doc = await collection.findOne({ instagram_account_id: instagramAccountId });
+    if (!doc) return null;
+    return {
+      id: doc._id.toString(),
+      instagram_account_id: doc.instagram_account_id,
+      access_token: doc.access_token
+    };
+  },
+
+  // Salvar mensagem
+  async saveMessage(data) {
+    const collection = db.collection('messages');
+    await collection.updateOne(
+      { message_id: data.message_id },
+      {
+        $set: {
+          account_id: data.account_id,
+          sender_id: data.sender_id,
+          recipient_id: data.recipient_id,
+          message_id: data.message_id,
+          text: data.text,
+          timestamp: data.timestamp,
+          raw_data: data.raw_data,
+          replied: false,
+          created_at: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  },
+
+  // Buscar mensagens por account_id
+  async getMessagesByAccountId(accountId) {
+    const collection = db.collection('messages');
+    const docs = await collection
+      .find({ account_id: accountId })
+      .sort({ timestamp: -1 })
+      .limit(100)
+      .toArray();
+    return docs.map(doc => ({
+      id: doc._id.toString(),
+      account_id: doc.account_id,
+      sender_id: doc.sender_id,
+      recipient_id: doc.recipient_id,
+      message_id: doc.message_id,
+      text: doc.text,
+      timestamp: doc.timestamp,
+      replied: doc.replied,
+      reply_text: doc.reply_text,
+      created_at: doc.created_at
+    }));
+  },
+
+  // Salvar comentário
+  async saveComment(data) {
+    const collection = db.collection('comments');
+    await collection.updateOne(
+      { comment_id: data.comment_id },
+      {
+        $set: {
+          account_id: data.account_id,
+          comment_id: data.comment_id,
+          post_id: data.post_id,
+          from_user_id: data.from_user_id,
+          from_username: data.from_username,
+          text: data.text,
+          timestamp: data.timestamp,
+          raw_data: data.raw_data,
+          replied: false,
+          created_at: new Date()
+        }
+      },
+      { upsert: true }
+    );
+  },
+
+  // Atualizar token
+  async updateToken(accountId, newToken) {
+    const collection = db.collection('instagram_accounts');
+    await collection.updateOne(
+      { _id: new ObjectId(accountId) },
+      {
+        $set: {
+          access_token: newToken,
           token_expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000),
           updated_at: new Date()
         }
       }
     );
-    return { changes: result.modifiedCount };
   }
-
-  console.warn('⚠️ Query not implemented:', sql.substring(0, 50));
-  return null;
-}
+};
 
 export async function initDatabase() {
   console.log('🗄️  Inicializando banco de dados MongoDB...');
@@ -252,7 +207,6 @@ export async function initDatabase() {
   } catch (error) {
     console.error('⚠️ Erro ao criar índices:', error.message);
   }
-
   // Debug: contar documentos
   try {
     const count = await db.collection('instagram_accounts').countDocuments();
