@@ -10,21 +10,18 @@ router.get('/instagram', (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  console.log('🔍 Verificação do webhook:');
-  console.log('   Mode:', mode);
+  console.log('🔍 Webhook validation attempt');
   console.log('   Token recebido:', token);
   console.log('   Token esperado:', VERIFY_TOKEN);
   console.log('   Corresponde?', token === VERIFY_TOKEN);
-  console.log('   Challenge:', challenge);
 
   if (mode === 'subscribe' && token === VERIFY_TOKEN) {
-    console.log('✅ Webhook verificado com sucesso!');
-    console.log('   Devolvendo challenge:', challenge);
-    res.status(200).type('text/plain').send(challenge);
-  } else {
-    console.error('❌ Falha na verificação do webhook - token não corresponde');
-    res.sendStatus(403);
+    console.log('✅ Webhook verificado!');
+    return res.type('text/plain').send(challenge);
   }
+  
+  console.error('❌ Token inválido');
+  return res.sendStatus(403);
 });
 
 // Receber eventos do webhook (POST)
