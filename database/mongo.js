@@ -44,7 +44,7 @@ async function executeSql(sql, params, mode) {
   if (sql.includes('INSERT INTO instagram_accounts')) {
     const collection = db.collection('instagram_accounts');
     const doc = {
-      user_id: params[0],
+      user_id: parseInt(params[0]) || params[0],
       instagram_account_id: params[1],
       username: params[2],
       access_token: params[3],
@@ -158,15 +158,19 @@ async function executeSql(sql, params, mode) {
   // SELECT * FROM instagram_accounts WHERE user_id (list accounts)
   if (sql.includes('SELECT') && sql.includes('FROM instagram_accounts') && sql.includes('user_id')) {
     const collection = db.collection('instagram_accounts');
-    const docs = await collection.find({ user_id: params[0] }).toArray();
-    return mode === 'all' ? docs : docs[0] || null;
+    // Converter userId para número
+    const userId = parseInt(params[0]) || params[0];
+    const docs = await collection.find({ user_id: userId }).toArray();
+    if (mode === 'all') return docs || [];
+    return docs[0] || null;
   }
 
   // SELECT * FROM messages WHERE account_id
   if (sql.includes('SELECT') && sql.includes('FROM messages') && sql.includes('account_id')) {
     const collection = db.collection('messages');
-    const docs = await collection.find({ account_id: params[0] }).sort({ timestamp: -1 }).toArray();
-    return mode === 'all' ? docs : docs[0] || null;
+    const accountId = parseInt(params[0]) || params[0];
+    const docs = await collection.find({ account_id: accountId }).sort({ timestamp: -1 }).toArray();
+    return mode === 'all' ? (docs || []) : docs[0] || null;
   }
 
   // SELECT COUNT(*) FROM instagram_accounts
